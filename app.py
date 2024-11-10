@@ -276,7 +276,6 @@ def FUN_add_user():
             )
             qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={otp_uri}"
             return render_template("qr.html", qr_code_url=qr_code_url)
-            return redirect(url_for("FUN_admin"))
     else:
         return abort(401)
 

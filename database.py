@@ -1,10 +1,14 @@
 import sqlite3
 import hashlib
-import datetime
+import bcrypt  # This will be for hashing passwords
+from datetime import datetime, timedelta
 
 user_db_file_location = "database_file/users.db"
 note_db_file_location = "database_file/notes.db"
 image_db_file_location = "database_file/images.db"
+
+TIMEOUT_DURATION = timedelta(minutes=5)
+MAX_FAILED_ATTEMPTS = 3
 
 
 def list_users():
@@ -23,12 +27,60 @@ def verify(id, pw):
     _conn = sqlite3.connect(user_db_file_location)
     _c = _conn.cursor()
 
-    _c.execute("SELECT pw FROM users WHERE id = '" + id + "';")
-    result = _c.fetchone()[0] == hashlib.sha256(pw.encode()).hexdigest()
+    _c.execute("SELECT pw FROM users WHERE id = ?", (id,))
+    user_record = _c.fetchone()
 
+    if user_record is None:
+        _conn.close()
+        return "Invalid credentials."
+
+    stored_pw = user_record[0]
+
+    try:
+        is_valid = bcrypt.checkpw(pw.encode(), stored_pw)
+    except ValueError:
+        _conn.close()
+        return "Error: Invalid password format in database."
+
+    _c.execute(
+        "SELECT failed_attempts, last_attempt FROM login_attempts WHERE id = ?", (id,)
+    )
+    attempt_record = _c.fetchone()
+
+    if is_valid:
+        _c.execute("DELETE FROM login_attempts WHERE id = ?", (id,))
+    else:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if attempt_record:
+            _c.execute(
+                "UPDATE login_attempts SET failed_attempts = failed_attempts + 1, last_attempt = ? WHERE id = ?",
+                (now_str, id),
+            )
+        else:
+            _c.execute(
+                "INSERT INTO login_attempts (id, failed_attempts, last_attempt) VALUES (?, 1, ?)",
+                (id, now_str),
+            )
+        is_valid = False
+
+    if attempt_record:
+        failed_attempts, last_attempt_str = attempt_record
+        last_attempt = datetime.strptime(last_attempt_str, "%Y-%m-%d %H:%M:%S")
+        time_since_last_attempt = datetime.now() - last_attempt
+
+        if (
+            failed_attempts >= MAX_FAILED_ATTEMPTS
+            and time_since_last_attempt < TIMEOUT_DURATION
+        ):
+            # Account is locked, return locked message without proceeding further
+            is_valid = False
+            # _conn.close()
+            # return is_valid
+
+    _conn.commit()
     _conn.close()
 
-    return result
+    return is_valid
 
 
 def delete_user_from_db(id):
@@ -59,9 +111,13 @@ def add_user(id, pw, new_secret):
     _conn = sqlite3.connect(user_db_file_location)
     _c = _conn.cursor()
 
+    # Run bcrypt hashing of password
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(pw.encode(), salt)
+
     _c.execute(
         "INSERT INTO users values(?, ?, ?)",
-        (id.upper(), hashlib.sha256(pw.encode()).hexdigest(), new_secret),
+        (id.upper(), hashed_password, new_secret),
     )
 
     _conn.commit()
