@@ -47,8 +47,23 @@ def verify(id, pw):
     )
     attempt_record = _c.fetchone()
 
-    if is_valid:
-        _c.execute("DELETE FROM login_attempts WHERE id = ?", (id,))
+    if is_valid and attempt_record:
+        failed_attempts, last_attempt_str = attempt_record
+        last_attempt = datetime.strptime(last_attempt_str, "%Y-%m-%d %H:%M:%S")
+        time_since_last_attempt = datetime.now() - last_attempt
+
+        if (
+            failed_attempts >= MAX_FAILED_ATTEMPTS
+            and time_since_last_attempt < TIMEOUT_DURATION
+        ):
+            # Account is locked, return locked message without proceeding further
+            is_valid = False
+            # _conn.close()
+            # return is_valid
+        else:
+            _c.execute("DELETE FROM login_attempts WHERE id = ?", (id,))
+            is_valid = True
+
     else:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if attempt_record:
@@ -62,20 +77,6 @@ def verify(id, pw):
                 (id, now_str),
             )
         is_valid = False
-
-    if attempt_record:
-        failed_attempts, last_attempt_str = attempt_record
-        last_attempt = datetime.strptime(last_attempt_str, "%Y-%m-%d %H:%M:%S")
-        time_since_last_attempt = datetime.now() - last_attempt
-
-        if (
-            failed_attempts >= MAX_FAILED_ATTEMPTS
-            and time_since_last_attempt < TIMEOUT_DURATION
-        ):
-            # Account is locked, return locked message without proceeding further
-            is_valid = False
-            # _conn.close()
-            # return is_valid
 
     _conn.commit()
     _conn.close()
