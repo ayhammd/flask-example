@@ -56,10 +56,8 @@ def verify(id, pw):
             failed_attempts >= MAX_FAILED_ATTEMPTS
             and time_since_last_attempt < TIMEOUT_DURATION
         ):
-            # Account is locked, return locked message without proceeding further
             is_valid = False
-            # _conn.close()
-            # return is_valid
+
         else:
             _c.execute("DELETE FROM login_attempts WHERE id = ?", (id,))
             is_valid = True

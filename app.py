@@ -219,8 +219,8 @@ def FUN_logout():
 @app.route("/delete_user/<id>/", methods=["GET"])
 def FUN_delete_user(id):
     if session.get("current_user", None) == "ADMIN":
-        # if id == "ADMIN":  # ADMIN account can't be deleted.
-        #    return abort(403)
+        if id == "ADMIN":  # ADMIN account can't be deleted.
+            return abort(403)
 
         # [1] Delete this user's images in image pool
         images_to_remove = [x[0] for x in list_images_for_user(id)]
