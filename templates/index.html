@@ -17,4 +17,14 @@
     </ul>
 
     <p>For more basic knowledge of Flask, you can refer to <a href="https://www.tutorialspoint.com/flask/">a tutorial on Tutorialspoint</a>.</p>
+
+    <h1>Welcome to the App</h1>
+    {% if not session.get("user_info") %}
+        <a href="{{ url_for('login') }}">Login with Google</a>
+    {% else %}
+        <p>You are logged in as {{ session["user_info"]["name"] }}</p>
+        <a href="{{ url_for('logout') }}">Logout</a>
+    {% endif %}
 {% endblock %}
+
+

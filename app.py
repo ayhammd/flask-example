@@ -1,6 +1,8 @@
 import os
 import datetime
 import hashlib
+import random
+import string
 import pyotp
 from flask import (
     Flask,
@@ -10,6 +12,7 @@ from flask import (
     render_template,
     request,
     abort,
+    jsonify,
     flash,
 )
 from database import list_users, verify, delete_user_from_db, add_user
@@ -24,13 +27,48 @@ from database import (
     list_images_for_user,
     match_user_id_with_image_uid,
     delete_image_from_db,
+    store_user,
 )
 from database import get_user_totp_secret
 from werkzeug.utils import secure_filename
+from authlib.integrations.flask_client import OAuth
+from authlib.jose import jwt
+from authlib.jose.errors import JoseError
+import requests
+from dotenv import load_dotenv
+from datetime import timedelta
 
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
+
+load_dotenv()
 
 app = Flask(__name__)
 app.config.from_object("config")
+app.secret_key = os.getenv("SECRET_KEY")
+app.config["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID")
+app.config["GOOGLE_CLIENT_SECRET"] = os.getenv("GOOGLE_CLIENT_SECRET")
+app.config["GOOGLE_DISCOVERY_URL"] = (
+    "https://accounts.google.com/.well-known/openid-configuration"
+)
+
+app.permanent_session_lifetime = timedelta(days=7)
+
+oauth = OAuth(app)
+google = oauth.register(
+    name="google",
+    client_id=app.config["GOOGLE_CLIENT_ID"],
+    client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+    server_metadata_url=app.config["GOOGLE_DISCOVERY_URL"],
+    client_kwargs={"scope": "openid email profile"},
+)
+
+REDIRECT_URI = "http://127.0.0.1:5000/callback"
+
+AUTH_CODES = {}
+TOKENS = {}
 
 
 @app.errorhandler(401)
@@ -60,7 +98,12 @@ def FUN_413(error):
 
 @app.route("/")
 def FUN_root():
-    return render_template("index.html")
+    user_info = session.get("user_info")
+    print(user_info)
+    if user_info:
+        return jsonify(user_info)
+    else:
+        return render_template("index.html")
 
 
 @app.route("/public/")
@@ -183,36 +226,67 @@ def FUN_delete_image(image_uid):
     return redirect(url_for("FUN_private"))
 
 
-@app.route("/login", methods=["POST"])
-def FUN_login():
-    id_submitted = request.form.get("id").upper()
-    password_submitted = request.form.get("pw")
-    otp_submitted = request.form.get("otp")
+@app.route("/login")
+# def FUN_login():
+#    id_submitted = request.form.get("id").upper()
+#    password_submitted = request.form.get("pw")
+#    otp_submitted = request.form.get("otp")
 
-    if id_submitted == "ADMIN":
-        session["current_user"] = "ADMIN"
-        return redirect(url_for("FUN_admin"))
+#    if id_submitted == "ADMIN":
+#        session["current_user"] = "ADMIN"
+#        return redirect(url_for("FUN_admin"))
 
-    if (id_submitted in list_users()) and verify(id_submitted, password_submitted):
-        user_totp_secret = get_user_totp_secret(id_submitted)
+#    if (id_submitted in list_users()) and verify(id_submitted, password_submitted):
+#        user_totp_secret = get_user_totp_secret(id_submitted)
 
-        totp = pyotp.TOTP(user_totp_secret)
-        if totp.verify(otp_submitted):
-            session["current_user"] = id_submitted
-            flash("Login successful", category="success")
-            return redirect(url_for("FUN_private"))
-        else:
-            flash("Wrong OTP", category="danger")
-            return redirect(url_for("FUN_root"))
+#        totp = pyotp.TOTP(user_totp_secret)
+#        if totp.verify(otp_submitted):
+#            session["current_user"] = id_submitted
+#            flash("Login successful", category="success")
+#            return redirect(url_for("FUN_private"))
+#        else:
+#            flash("Wrong OTP", category="danger")
+#            return redirect(url_for("FUN_root"))
 
-    else:
-        flash("Login failed", category="danger")
-        return redirect(url_for("FUN_root"))
+#    else:
+#        flash("Login failed", category="danger")
+#        return redirect(url_for("FUN_root"))
+
+
+def login():
+    nonce = "".join(random.choices(string.ascii_letters + string.digits, k=32))
+    session["nonce"] = nonce
+
+    return google.authorize_redirect(redirect_uri=url_for("callback", _external=True))
+
+
+@app.route("/callback")
+def callback():
+    id_token = google.authorize_access_token()
+
+    nonce = session.pop("nonce", None)
+
+    # if not nonce:
+    #    return "Invalid nonce 1", 400
+
+    user_info = google.parse_id_token(id_token, nonce=nonce)
+
+    session["user_info"] = user_info
+
+    print("State:", request.args.get("state"))
+    print("Code:", request.args.get("code"))
+
+    # store_user(
+    #    user_info=user_info,
+    #    access_token=token["access_token"],
+    #    refresh_token=token.get("refresh_token"),
+    # )
+    return redirect(url_for("FUN_root"))
 
 
 @app.route("/logout/")
 def FUN_logout():
-    session.pop("current_user", None)
+    session.pop("user_info", None)
     return redirect(url_for("FUN_root"))
 
 
@@ -281,4 +355,4 @@ def FUN_add_user():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    app.run(host="127.0.0.1", port=5000, debug=True)

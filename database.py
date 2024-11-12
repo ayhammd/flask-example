@@ -23,6 +23,51 @@ def list_users():
     return result
 
 
+def store_user(user_info, access_token, refresh_token=None):
+    provider_id = user_info["id"]
+    email = user_info["email"]
+    name = user_info.get("name")
+    profile_picture = user_info.get("picture")
+
+    # Hash tokens
+    hashed_access_token = bcrypt.hashpw(
+        access_token.encode(), bcrypt.gensalt()
+    ).decode()
+    hashed_refresh_token = (
+        bcrypt.hashpw(refresh_token.encode(), bcrypt.gensalt()).decode()
+        if refresh_token
+        else None
+    )
+
+    _conn = sqlite3.connect(user_db_file_location)
+    _c = _conn.cursor()
+    _c.execute(
+        """
+        INSERT OR REPLACE INTO users (provider_id, email, name, profile_picture, 
+                                      hashed_access_token, hashed_refresh_token, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            provider_id,
+            email,
+            name,
+            profile_picture,
+            hashed_access_token,
+            hashed_refresh_token,
+            datetime.now(),
+        ),
+    )
+
+    _c.commit()
+    _c.close()
+
+    return True
+
+
+def validate_token(stored_hashed_token, token_to_check):
+    return bcrypt.checkpw(token_to_check.encode(), stored_hashed_token.encode())
+
+
 def verify(id, pw):
     _conn = sqlite3.connect(user_db_file_location)
     _c = _conn.cursor()
